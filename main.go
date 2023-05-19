@@ -13,7 +13,7 @@ import (
 // Entry point to the solution
 func main() {
 
-	service := server.NewServer("gf-document", "user")
+	service := server.NewServer("gf-document", "document")
 	service.Mux = router.LoadRouter(service)
 
 	// background task

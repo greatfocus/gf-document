@@ -26,6 +26,12 @@ jobs:
       - name: Check out code
         uses: actions/checkout@v2
 
+      - name: Tidy dependencies
+        run: go mod tidy  
+
+      - name: Vendor dependencies
+        run: go mod vendor
+
       - name: Verify dependencies
         run: go mod verify
 
@@ -33,19 +39,19 @@ jobs:
         run: go build -v ./...
 
       - name: Run go vet
-        run: go vet ./...
+        run: go vet $(go list ./... | grep -v /vendor/)
 
       - name: Install staticcheck
         run: go install honnef.co/go/tools/cmd/staticcheck@latest
 
       - name: Run staticcheck
-        run: staticcheck ./...
+        run: staticcheck $(go list ./... | grep -v /vendor/)
 
       - name: Install golint
         run: go install golang.org/x/lint/golint@latest
 
       - name: Run golint
-        run: golint ./...
+        run: golint $(go list ./... | grep -v /vendor/)
 
   test:
     name: Test
@@ -64,6 +70,12 @@ jobs:
       - name: Check out code
         uses: actions/checkout@v2
 
+      - name: Tidy dependencies
+        run: go mod tidy  
+
+      - name: Vendor dependencies
+        run: go mod vendor
+
       - name: Vars
         id: vars
         run: |
@@ -79,7 +91,7 @@ jobs:
                         ${{ runner.os }}-go${{ matrix.go }}-release
 
       - name: Test
-        run: go test -race -vet=off ./...
+        run: go test -race -vet=off $(go list ./... | grep -v /vendor/)
 
   setup:
     name: Setup

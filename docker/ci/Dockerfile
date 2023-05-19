@@ -8,6 +8,7 @@ WORKDIR /source
 ARG COMMIT
 RUN go mod download
 RUN CGO_ENABLED=0 go mod tidy
+RUN go mod vendor
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "-s -w -X main.commit=${COMMIT}" -o main .
 
 

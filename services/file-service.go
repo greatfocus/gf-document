@@ -1,11 +1,12 @@
 package services
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"errors"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"os"
 	"regexp"
@@ -122,7 +123,7 @@ func (f *FileService) Upload(ctx context.Context, enKey string, r *http.Request)
 		return doc, err
 	}
 
-	tempFile, err := ioutil.TempFile(uploadPath+"/Temp", "image-*.png")
+	tempFile, err := os.CreateTemp(uploadPath+"/Temp", "image-*.png")
 	re := regexp.MustCompile(`^(.*/)?(?:$|(.+?)(?:(\.[^.]*$)|$))`)
 	match2 := re.FindStringSubmatch(tempFile.Name())
 	fileName := match2[2] + match2[3]
@@ -135,12 +136,13 @@ func (f *FileService) Upload(ctx context.Context, enKey string, r *http.Request)
 
 	// read all of the contents of our uploaded file into a
 	// byte array
-	fileBytes, err := ioutil.ReadAll(file)
-	if err != nil {
+	fileBuffer := bytes.NewBuffer(nil)
+	if _, err := io.Copy(fileBuffer, file); err != nil {
 		return doc, err
 	}
+
 	// write this byte array to our temporary file
-	tempFile.Write(fileBytes)
+	tempFile.Write(fileBuffer.Bytes())
 	// return that we have successfully uploaded our file!
 	f.logger.Info(fmt.Sprintf("Successfully Uploaded File: %+v\n", tempFile))
 
