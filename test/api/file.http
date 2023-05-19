@@ -1,0 +1,37 @@
+@host = api.localhost.com
+# @host = localhost:5003
+@contentType = application/json
+
+### Get Meta
+# @name getFile
+GET https://{{host}}/document/info
+Content-Type: {{contentType}}
+
+
+### create File
+# @name createFile
+POST https://{{host}}/document/file
+Content-Type: multipart/form-data; boundary=----WebKitFormBoundary7MA4YWxkTrZu0gW
+
+------WebKitFormBoundary7MA4YWxkTrZu0gW
+Content-Disposition: form-data; name="text"
+
+title
+------WebKitFormBoundary7MA4YWxkTrZu0gW
+Content-Disposition: form-data; name="image"; filename="/home/muthurimi/Pictures/test.png"
+Content-Type: image/png
+
+< /home/muthurimi/Pictures/test.png
+------WebKitFormBoundary7MA4YWxkTrZu0gW--
+
+
+### Get File
+# @name getFile
+GET https://{{host}}/document/file?id=c9c9e055-9fee-4183-b474-2d6d4a2aa773
+Content-Type: {{contentType}}
+
+
+### Get Files
+# @name getFiles
+GET https://{{host}}/document/file?lastId=6928742c-87b8-4d53-b443-33e1c860d494
+Content-Type: {{contentType}}

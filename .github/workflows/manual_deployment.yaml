@@ -1,0 +1,223 @@
+# Trigger the workflow to deploy a specific git reference to a specific environment only when:
+# - the `workflow_dispatch` event is used in the UI.
+# This is ideal for environment such as production, staging or sandbox if you wish to make the
+# deployment manual.
+  
+name: Manual deployment
+  
+on:
+  workflow_dispatch:
+    inputs:
+      env:
+        description: "Environment to deploy - options: qa|stage|prod"
+        required: true
+      ref:
+        description: "Git reference to deploy - example: branch/tag/sha"
+        required: true
+  
+jobs:
+
+  build:
+    name: Audit
+    runs-on: ubuntu-20.04
+    steps:
+      - name: Set up Go
+        uses: actions/setup-go@v2
+        with:
+          go-version: 1.19
+
+      - name: Check out code
+        uses: actions/checkout@v2
+
+      - name: Verify dependencies
+        run: go mod verify
+
+      - name: Build
+        run: go build -v ./...
+
+      - name: Run go vet
+        run: go vet ./...
+
+      - name: Install staticcheck
+        run: go install honnef.co/go/tools/cmd/staticcheck@latest
+
+      - name: Run staticcheck
+        run: staticcheck ./...
+
+      - name: Install golint
+        run: go install golang.org/x/lint/golint@latest
+
+      - name: Run golint
+        run: golint ./...
+
+  test:
+    name: Test
+    strategy:
+      matrix:
+        os: [ubuntu-20.04, macos-latest, windows-latest]
+        go: ["1.19"]
+    runs-on: ${{ matrix.os }}
+    needs: [build]
+    steps:
+      - name: Set up Go
+        uses: actions/setup-go@v2
+        with:
+          go-version: 1.19
+
+      - name: Check out code
+        uses: actions/checkout@v2
+
+      - name: Vars
+        id: vars
+        run: |
+          echo "::set-output name=version_tag::${GITHUB_REF/refs\/tags\//}"
+          echo "::set-output name=go_cache::$(go env GOCACHE)"
+
+      - name: Cache the build cache
+        uses: actions/cache@v2
+        with:
+          path: ${{ steps.vars.outputs.go_cache }}
+          key: ${{ runner.os }}-go${{ matrix.go }}-release-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+                        ${{ runner.os }}-go${{ matrix.go }}-release
+
+      - name: Test
+        run: go test -race -vet=off ./...
+
+  setup:
+    name: Setup
+    needs: [test]
+    runs-on: ubuntu-20.04
+    outputs:
+      repo: ${{ steps.vars.outputs.repo }}
+      commit: ${{ steps.vars.outputs.commit }}
+    steps:
+      - name: Deployment info
+        run: echo "Deploying '${{ github.event.inputs.ref }}' to '${{ github.event.inputs.env }}' environment"
+      - name: Verifying environment
+        run: |
+          envs=("qa stage prod")
+          [[ ${envs[*]} =~ ${{ github.event.inputs.env }} ]] || { echo "Invalid environment"; exit 1; }
+      - name: Use repository
+        uses: actions/checkout@v2
+        with:
+          ref: ${{ github.event.inputs.ref }}
+      - name: Build variables
+        id: vars
+        run: |
+          echo "::set-output name=repo::$GITHUB_REPOSITORY"
+          echo "::set-output name=commit::$(git rev-parse --short "$GITHUB_SHA")"
+      - name: Upload repository
+        uses: actions/upload-artifact@v2
+        with:
+          name: repository
+          path: |
+            ${{ github.workspace }}/deploy
+            ${{ github.workspace }}/docker
+            ${{ github.workspace }}/.dockerignore
+            ${{ github.workspace }}/main.go
+            ${{ github.workspace }}/main_test.go
+            ${{ github.workspace }}/go.mod
+            ${{ github.workspace }}/go.sum
+  
+  docker:
+    name: Docker
+    needs: [setup]
+    runs-on: ubuntu-20.04
+    steps:
+      - name: Download repository
+        uses: actions/download-artifact@v2
+        with:
+          name: repository
+      - name: Login to DockerHub
+        uses: docker/login-action@v1
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Build and push image
+        uses: docker/build-push-action@v2
+        with:
+          push: true
+          file: ./docker/ci/Dockerfile
+          # tags: ${{ needs.setup.outputs.repo }}:${{ github.event.inputs.env }}
+          tags: mucunga90/gf-document:${{ github.event.inputs.env }}
+          build-args: COMMIT=${{ needs.setup.outputs.commit }}
+  
+  deploy:
+    name: Deploy
+    needs: docker
+    runs-on: ubuntu-20.04
+    steps:
+      - name: Download repository
+        uses: actions/download-artifact@v2
+        with:
+          name: repository
+      - name: Install kubectl
+        run: |
+          curl -LO https://dl.k8s.io/release/v1.22.0/bin/linux/amd64/kubectl
+          curl -LO "https://dl.k8s.io/v1.22.0/bin/linux/amd64/kubectl.sha256"
+          echo "$(<kubectl.sha256) kubectl" | sha256sum --check
+          sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
+          kubectl version --client
+      - name: Create kube config
+        run: |
+          mkdir -p $HOME/.kube/
+          case ${{ github.event.inputs.env }} in
+                qa) echo "${{ secrets.KUBE_QA_URL }}" > $HOME/.kube/config ;;
+            stage) echo "${{ secrets.KUBE_STAGE_URL }}" > $HOME/.kube/config ;;
+              prod) echo "${{ secrets.KUBE_PROD_URL }}" > $HOME/.kube/config ;;
+                *) echo "Invalid environment"; exit 1;;
+          esac
+          case ${{ github.event.inputs.env }} in
+                qa) echo "${{ secrets.KUBE_QA_CONFIG }}" > $HOME/.kube/qa.yaml ;;
+            stage) echo "${{ secrets.KUBE_STAGE_CONFIG }}" > $HOME/.kube/stage.yaml ;;
+              prod) echo "${{ secrets.KUBE_PROD_CONFIG }}" > $HOME/.kube/prod.yaml ;;
+                *) echo "Invalid config"; exit 1;;
+          case ${{ github.event.inputs.env }} in
+                qa) echo DB_ROOT_CA=${{ secrets.DB_ROOT_CA }} >> $HOME/.kube/qa.yaml ;;
+            stage) echo DB_ROOT_CA=${{ secrets.DB_ROOT_CA }} >> $HOME/.kube/stage.yaml ;;
+              prod) DB_ROOT_CA=${{ secrets.DB_ROOT_CA }} >> $HOME/.kube/prod.yaml ;;
+                *) echo "Invalid config"; exit 1;;
+          case ${{ github.event.inputs.env }} in
+                qa) echo DB_SSL_CERT=${{ secrets.DB_SSL_CERT }} >> $HOME/.kube/qa.yaml ;;
+            stage) echo DB_SSL_CERT=${{ secrets.DB_SSL_CERT }} >> $HOME/.kube/stage.yaml ;;
+              prod) DB_SSL_CERT=${{ secrets.DB_SSL_CERT }} >> $HOME/.kube/prod.yaml ;;
+                *) echo "Invalid config"; exit 1;;
+          case ${{ github.event.inputs.env }} in
+                qa) echo DB_SSL_KEY=${{ secrets.DB_SSL_KEY }} >> $HOME/.kube/qa.yaml ;;
+            stage) echo DB_SSL_KEY=${{ secrets.DB_SSL_KEY }} >> $HOME/.kube/stage.yaml ;;
+              prod) DB_SSL_KEY=${{ secrets.DB_SSL_KEY }} >> $HOME/.kube/prod.yaml ;;
+                *) echo "Invalid config"; exit 1;;
+          case ${{ github.event.inputs.env }} in
+                qa) echo API_SSL_CERT=${{ secrets.API_SSL_CERT }} >> $HOME/.kube/qa.yaml ;;
+            stage) echo API_SSL_CERT=${{ secrets.API_SSL_CERT }} >> $HOME/.kube/stage.yaml ;;
+              prod) API_SSL_CERT=${{ secrets.API_SSL_CERT }} >> $HOME/.kube/prod.yaml ;;
+                *) echo "Invalid config"; exit 1;;
+          case ${{ github.event.inputs.env }} in
+                qa) echo API_SSL_KEY=${{ secrets.API_SSL_KEY }} >> $HOME/.kube/qa.yaml ;;
+            stage) echo API_SSL_KEY=${{ secrets.API_SSL_KEY }} >> $HOME/.kube/stage.yaml ;;
+              prod) API_SSL_KEY=${{ secrets.API_SSL_KEY }} >> $HOME/.kube/prod.yaml ;;
+                *) echo "Invalid config"; exit 1;;
+          case ${{ github.event.inputs.env }} in
+                qa) echo CLIENT_PUBLICKEY=${{ secrets.CLIENT_PUBLICKEY }} >> $HOME/.kube/qa.yaml ;;
+            stage) echo CLIENT_PUBLICKEY=${{ secrets.CLIENT_PUBLICKEY }} >> $HOME/.kube/stage.yaml ;;
+              prod) CLIENT_PUBLICKEY=${{ secrets.CLIENT_PUBLICKEY }} >> $HOME/.kube/prod.yaml ;;
+                *) echo "Invalid config"; exit 1;;
+          case ${{ github.event.inputs.env }} in
+                qa) echo API_PRIVATE_KEY=${{ secrets.API_PRIVATE_KEY }} >> $HOME/.kube/qa.yaml ;;
+            stage) echo API_PRIVATE_KEY=${{ secrets.API_PRIVATE_KEY }} >> $HOME/.kube/stage.yaml ;;
+              prod) API_PRIVATE_KEY=${{ secrets.API_PRIVATE_KEY }} >> $HOME/.kube/prod.yaml ;;
+                *) echo "Invalid config"; exit 1;;
+          case ${{ github.event.inputs.env }} in
+                qa) echo API_PUBLIC_KEY=${{ secrets.API_PUBLIC_KEY }} >> $HOME/.kube/qa.yaml ;;
+            stage) echo API_PUBLIC_KEY=${{ secrets.API_PUBLIC_KEY }} >> $HOME/.kube/stage.yaml ;;
+              prod) API_PUBLIC_KEY=${{ secrets.API_PUBLIC_KEY }} >> $HOME/.kube/prod.yaml ;;
+                *) echo "Invalid config"; exit 1;;
+          esac
+      - name: Deploy
+        run: |
+          kubectl --kubeconfig $HOME/.kube/config delete configmap gf-document-db-config -n ${{ github.event.inputs.env }}
+          kubectl --kubeconfig $HOME/.kube/config create configmap gf-document-db-config -n ${{ github.event.inputs.env }} --from-file=deploy/k8s/${{ github.event.inputs.env }}/config/postgres/
+          kubectl --kubeconfig $HOME/.kube/config delete secret -n ${{ github.event.inputs.env }} gf-document-secret
+          kubectl --kubeconfig $HOME/.kube/config create secret generic -n ${{ github.event.inputs.env }} gf-document-secret --from-env-file=$HOME/.kube/${{ github.event.inputs.env }}.yaml
+          kubectl --kubeconfig $HOME/.kube/config apply -k deploy/k8s/${{ github.event.inputs.env }}

@@ -1,0 +1,113 @@
+kind: PersistentVolume
+apiVersion: v1
+metadata:
+  name: gf-document-db-volume
+  labels:
+    component: gf-document
+    function: db
+spec:
+  storageClassName: slow
+  capacity:
+    storage: 1Gi
+  volumeMode: Filesystem
+  accessModes:
+    - ReadWriteOnce
+  hostPath:
+    path: "/mnt/postgres/gf_document"
+---
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: gf-document-db-claim
+spec:
+  storageClassName: slow
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+  selector:
+    matchLabels:
+      component: gf-document
+      function: db
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gf-document-db
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gf-document-db
+  template:
+    metadata:
+      labels:
+        app: gf-document-db
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:10.4
+          imagePullPolicy: "IfNotPresent"
+          resources:
+            limits:
+              memory: 512Mi
+              cpu: "1"
+            requests:
+              memory: 256Mi
+              cpu: "0.2"
+          ports:
+            - containerPort: 5432
+          args:
+            - -c
+            - hba_file=/etc/postgresql/gf-document/pg_hba.conf
+            - -c
+            - config_file=/etc/postgresql/gf-document/postgresql.conf
+          env:
+            - name: POSTGRES_DB
+              valueFrom:
+                secretKeyRef:
+                  name: gf-document-secret
+                  key: DB_NAME
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: gf-document-secret
+                  key: DB_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: gf-document-secret
+                  key: DB_PASSWORD
+          volumeMounts:
+            - mountPath: /var/lib/postgresql/data
+              name: gf-document-db-storage
+            - mountPath: /etc/postgresql/gf-document
+              name: gf-document-config-storage
+      volumes:
+        - name: gf-document-db-storage
+          persistentVolumeClaim:
+            claimName: gf-document-db-claim
+        - name: gf-document-config-storage
+          configMap:
+            name: gf-document-db-config
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gf-document-db
+spec:
+  type: NodePort
+  ports:
+    - port: 5432
+      targetPort: 5432
+      protocol: TCP
+      nodePort: 30003
+  selector:
+   app: gf-document-db
+
+# kubectl delete service gf-document-db 
+# kubectl delete deployment gf-document-db
+# kubectl delete persistentvolumeclaim gf-document-db-claim
+# kubectl delete persistentvolume gf-document-db-volume
+# minikube service gf-document-db -n prod

@@ -1,0 +1,101 @@
+# Trigger the workflow only when:
+# - a new pull request with any name/type is opened against the main, develop, hotfix/* or release/* branch
+# - a commit is directly pushed to the pull request
+  
+name: Pull request builder
+  
+on:
+  pull_request:
+    branches:
+      - main
+      - feature/*
+      - hotfix/*
+      - release/*
+  
+jobs:
+
+  build:
+    name: Audit
+    runs-on: ubuntu-20.04
+    steps:
+      - name: Set up Go
+        uses: actions/setup-go@v2
+        with:
+          go-version: 1.19
+
+      - name: Check out code
+        uses: actions/checkout@v2
+
+      - name: Verify dependencies
+        run: go mod verify
+
+      - name: Build
+        run: go build -v ./...
+
+      - name: Run go vet
+        run: go vet ./...
+
+      - name: Install staticcheck
+        run: go install honnef.co/go/tools/cmd/staticcheck@latest
+
+      - name: Run staticcheck
+        run: staticcheck ./...
+
+      - name: Install golint
+        run: go install golang.org/x/lint/golint@latest
+
+      - name: Run golint
+        run: golint ./...
+
+  test:
+    name: Test
+    strategy:
+      matrix:
+        os: [ubuntu-20.04, macos-latest, windows-latest]
+        go: ["1.19"]
+    runs-on: ${{ matrix.os }}
+    needs: [build]
+    steps:
+      - name: Set up Go
+        uses: actions/setup-go@v2
+        with:
+          go-version: 1.19
+
+      - name: Check out code
+        uses: actions/checkout@v2
+
+      - name: Vars
+        id: vars
+        run: |
+          echo "::set-output name=version_tag::${GITHUB_REF/refs\/tags\//}"
+          echo "::set-output name=go_cache::$(go env GOCACHE)"
+
+      - name: Cache the build cache
+        uses: actions/cache@v2
+        with:
+          path: ${{ steps.vars.outputs.go_cache }}
+          key: ${{ runner.os }}-go${{ matrix.go }}-release-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+                        ${{ runner.os }}-go${{ matrix.go }}-release
+
+      - name: Test
+        run: go test -race -vet=off ./...
+
+  setup:
+    name: Setup
+    needs: [test]
+    runs-on: ubuntu-20.04
+    steps:
+      - name: Use repository
+        uses: actions/checkout@v2
+      - name: Upload repository
+        uses: actions/upload-artifact@v2
+        with:
+          name: repository
+          path: |
+            ${{ github.workspace }}/docker
+            ${{ github.workspace }}/.dockerignore
+            ${{ github.workspace }}/main.go
+            ${{ github.workspace }}/main_test.go
+            ${{ github.workspace }}/go.mod
+            ${{ github.workspace }}/go.sum

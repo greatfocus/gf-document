@@ -1,0 +1,156 @@
+kind: PersistentVolume
+apiVersion: v1
+metadata:
+  name: gf-document-api-volume
+  labels:
+    component: gf-document
+    function: api
+spec:
+  storageClassName: slow
+  persistentVolumeReclaimPolicy: Retain
+  capacity:
+    storage: 500Mi
+  volumeMode: Filesystem
+  accessModes:
+    - ReadWriteOnce
+  hostPath:
+    path: "/mnt/gf_document/data"
+---
+kind: PersistentVolume
+apiVersion: v1
+metadata:
+  name: gf-document-log-volume
+  labels:
+    component: gf-document
+    function: log
+spec:
+  storageClassName: slow
+  persistentVolumeReclaimPolicy: Retain
+  capacity:
+    storage: 500Mi
+  volumeMode: Filesystem
+  accessModes:
+    - ReadWriteOnce
+  hostPath:
+    path: "/mnt/gf_document/logs"
+---
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: gf-document-api-claim
+spec:
+  storageClassName: slow
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 500Mi
+  selector:
+    matchLabels:
+      component: gf-document
+      function: api
+---
+kind: PersistentVolumeClaim
+apiVersion: v1
+metadata:
+  name: gf-document-log-claim
+spec:
+  storageClassName: slow
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 500Mi
+  selector:
+    matchLabels:
+      component: gf-document
+      function: log
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gf-document-api
+  labels:
+    app: gf-document-api
+spec:
+  type: ClusterIP
+  selector:
+    app: gf-document-api
+  ports:
+    - protocol: TCP
+      port: 5003
+      targetPort: 5003
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gf-document-api
+  labels:
+    app: gf-document-api
+  annotations:
+    rollout: ""
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gf-document-api
+  template:
+    metadata:
+      labels:
+        app: gf-document-api
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 3000
+        fsGroup: 2000
+      containers:
+        - name: golang
+          image: mucunga90/gf-document:stage
+          imagePullPolicy: Always
+          securityContext:
+            allowPrivilegeEscalation: false
+          resources:
+            limits:
+              memory: 250Mi
+              cpu: "1"
+            requests:
+              memory: 100Mi
+              cpu: "0.1"
+          ports:
+            - containerPort: 5003
+          livenessProbe:
+            httpGet:
+              path: /document/info
+              port: 5003
+              scheme: HTTP
+            initialDelaySeconds: 5
+            periodSeconds: 15
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /document/info
+              port: 5003
+              scheme: HTTP
+            initialDelaySeconds: 5
+            timeoutSeconds: 1
+          envFrom:
+            - secretRef:
+                name: gf-document-secret
+          volumeMounts:
+            - mountPath: /home/f764a076-ae85-4b9a-b258-6998694ee8a6/data
+              name: gf-document-api-storage
+            - mountPath: /home/f764a076-ae85-4b9a-b258-6998694ee8a6/logs
+              name: gf-document-log-storage
+      volumes:
+        - name: gf-document-api-storage
+          persistentVolumeClaim:
+            claimName: gf-document-api-claim
+        - name: gf-document-log-storage
+          persistentVolumeClaim:
+            claimName: gf-document-log-claim
+
+# kubectl delete service gf-document-api
+# kubectl delete deployment gf-document-api
+# kubectl delete persistentvolumeclaim gf-document-api-claim
+# kubectl delete persistentvolume gf-document-api-volume

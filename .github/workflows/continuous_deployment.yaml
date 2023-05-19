@@ -1,0 +1,167 @@
+# Trigger the workflow to deploy to qa environment only when:
+# - an existing pull request with any name/type is merged to the main or develop branch
+# - a commit is directly pushed to the main or develop branch
+  
+name: Continuous deployment
+  
+on:
+  push:
+    branches:
+      - main
+  
+jobs:
+
+  build:
+    name: Audit
+    runs-on: ubuntu-20.04
+    steps:
+      - name: Set up Go
+        uses: actions/setup-go@v2
+        with:
+          go-version: 1.19
+
+      - name: Check out code
+        uses: actions/checkout@v2
+
+      - name: Verify dependencies
+        run: go mod verify
+
+      - name: Build
+        run: go build -v ./...
+
+      - name: Run go vet
+        run: go vet ./...
+
+      - name: Install staticcheck
+        run: go install honnef.co/go/tools/cmd/staticcheck@latest
+
+      - name: Run staticcheck
+        run: staticcheck ./...
+
+      - name: Install golint
+        run: go install golang.org/x/lint/golint@latest
+
+      - name: Run golint
+        run: golint ./...
+
+  test:
+    name: Test
+    strategy:
+      matrix:
+        os: [ubuntu-20.04, macos-latest, windows-latest]
+        go: ["1.19"]
+    runs-on: ${{ matrix.os }}
+    needs: [build]
+    steps:
+      - name: Set up Go
+        uses: actions/setup-go@v2
+        with:
+          go-version: 1.19
+
+      - name: Check out code
+        uses: actions/checkout@v2
+
+      - name: Vars
+        id: vars
+        run: |
+          echo "::set-output name=version_tag::${GITHUB_REF/refs\/tags\//}"
+          echo "::set-output name=go_cache::$(go env GOCACHE)"
+
+      - name: Cache the build cache
+        uses: actions/cache@v2
+        with:
+          path: ${{ steps.vars.outputs.go_cache }}
+          key: ${{ runner.os }}-go${{ matrix.go }}-release-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+                        ${{ runner.os }}-go${{ matrix.go }}-release
+
+      - name: Test
+        run: go test -race -vet=off ./...
+
+  setup:
+    name: Setup
+    needs: [test]
+    runs-on: ubuntu-20.04
+    outputs:
+      repo: ${{ steps.vars.outputs.repo }}
+      commit: ${{ steps.vars.outputs.commit }}
+    steps:
+      - name: Use repository
+        uses: actions/checkout@v2
+      - name: Build variables
+        id: vars
+        run: |
+          echo "::set-output name=repo::$GITHUB_REPOSITORY"
+          echo "::set-output name=commit::$(git rev-parse --short "$GITHUB_SHA")"
+      - name: Upload repository
+        uses: actions/upload-artifact@v2
+        with:
+          name: repository
+          path: |
+            ${{ github.workspace }}/deploy
+            ${{ github.workspace }}/docker
+            ${{ github.workspace }}/.dockerignore
+            ${{ github.workspace }}/main.go
+            ${{ github.workspace }}/main_test.go
+            ${{ github.workspace }}/go.mod
+            ${{ github.workspace }}/go.sum
+
+  docker:
+    name: Docker
+    needs: [setup]
+    runs-on: ubuntu-20.04
+    steps:
+      - name: Download repository
+        uses: actions/download-artifact@v2
+        with:
+          name: repository
+      - name: Login to DockerHub
+        uses: docker/login-action@v1
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Build and push image
+        uses: docker/build-push-action@v2
+        with:
+          push: true
+          file: ./docker/ci/Dockerfile
+          tags: mucunga90/gf-document:qa
+          # tags: ${{ needs.setup.outputs.repo }}:qa
+          build-args: COMMIT=${{ needs.setup.outputs.commit }}
+  
+  deploy:
+    name: Deploy
+    needs: docker
+    runs-on: ubuntu-20.04
+    steps:
+      - name: Download repository
+        uses: actions/download-artifact@v2
+        with:
+          name: repository
+      - name: Install kubectl
+        run: |
+          curl -LO https://dl.k8s.io/release/v1.22.0/bin/linux/amd64/kubectl
+          curl -LO "https://dl.k8s.io/v1.22.0/bin/linux/amd64/kubectl.sha256"
+          echo "$(<kubectl.sha256) kubectl" | sha256sum --check
+          sudo install -o root -g root -m 0755 kubectl /usr/local/bin/kubectl
+          kubectl version --client
+      - name: Create kube config
+        run: |
+          mkdir -p $HOME/.kube/
+          echo "${{ secrets.KUBE_QA_URL }}" > $HOME/.kube/config
+          echo "${{ secrets.KUBE_QA_CONFIG }}" > $HOME/.kube/qa.yaml
+          echo DB_ROOT_CA=${{ secrets.DB_ROOT_CA }} >> $HOME/.kube/qa.yaml
+          echo DB_SSL_CERT=${{ secrets.DB_SSL_CERT }} >> $HOME/.kube/qa.yaml
+          echo DB_SSL_KEY=${{ secrets.DB_SSL_KEY }} >> $HOME/.kube/qa.yaml
+          echo API_SSL_CERT=${{ secrets.API_SSL_CERT }} >> $HOME/.kube/qa.yaml
+          echo API_SSL_KEY=${{ secrets.API_SSL_KEY }} >> $HOME/.kube/qa.yaml
+          echo CLIENT_PUBLICKEY=${{ secrets.CLIENT_PUBLICKEY }} >> $HOME/.kube/qa.yaml
+          echo API_PRIVATE_KEY=${{ secrets.API_PRIVATE_KEY }} >> $HOME/.kube/qa.yaml
+          echo API_PUBLIC_KEY=${{ secrets.API_PUBLIC_KEY }} >> $HOME/.kube/qa.yaml
+      - name: Deploy
+        run: |
+          kubectl --kubeconfig $HOME/.kube/config delete configmap gf-document-db-config -n qa
+          kubectl --kubeconfig $HOME/.kube/config create configmap gf-document-db-config -n qa --from-file=deploy/k8s/qa/config/postgres/
+          kubectl --kubeconfig $HOME/.kube/config delete secret -n qa gf-document-secret
+          kubectl --kubeconfig $HOME/.kube/config create secret generic -n qa gf-document-secret --from-env-file=$HOME/.kube/qa.yaml
+          kubectl --kubeconfig $HOME/.kube/config apply -k deploy/k8s/qa
