@@ -5,7 +5,7 @@ go 1.19
 require (
 	github.com/go-co-op/gocron v1.27.1
 	github.com/google/uuid v1.3.0
-	github.com/greatfocus/gf-sframe v0.1.1
+	github.com/greatfocus/gf-sframe v0.1.2
 	github.com/lib/pq v1.10.9
 	github.com/patrickmn/go-cache v2.1.0+incompatible
 	github.com/rabbitmq/amqp091-go v1.8.0

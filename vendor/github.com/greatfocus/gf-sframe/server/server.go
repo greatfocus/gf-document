@@ -72,7 +72,16 @@ type Server struct {
 
 // Start the server
 func (s *Server) Start() {
-	// Get encryption keys
+	pki(s)
+
+	setUploadPath(s.Mux, s.URI)
+
+	serverProbe(s.Mux, s.URI)
+
+	start(s.Mux, s.Logger, int(s.Timeout))
+}
+
+func pki(s *Server) {
 	privatekey, publicKey := GetServerPKI()
 	s.ServerPublicKey = publicKey
 	s.serverPrivateKey = privatekey
@@ -88,12 +97,12 @@ func (s *Server) Start() {
 
 		}
 	}
+}
 
-	// setUploadPath creates an upload path
-	setUploadPath(s.Mux, s.URI)
-
-	// serve creates server instance
-	start(s.Mux, s.Logger, int(s.Timeout))
+func serverProbe(mux *http.ServeMux, uri string) {
+	probe := liveProbe{}
+	probeLoc := "/" + uri + "/info"
+	mux.Handle(probeLoc, probe)
 }
 
 func initCache() *cache.Cache {

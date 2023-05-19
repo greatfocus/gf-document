@@ -8,8 +8,8 @@ github.com/golang-jwt/jwt/v5 v5.0.0 h1:1n1XNM9hk7O9mnQoNBGolZvzebBQ7p93ULHRc28XJ
 github.com/golang-jwt/jwt/v5 v5.0.0/go.mod h1:pqrtFR0X4osieyHYxtmOUWsAWrfe1Q5UVIyoH402zdk=
 github.com/google/uuid v1.3.0 h1:t6JiXgmwXMjEs8VusXIJk2BXHsn+wx8BZdTaoZ5fu7I=
 github.com/google/uuid v1.3.0/go.mod h1:TIyPZe4MgqvfeYDBFedMoGGpEw/LqOeaOT+nhxU+yHo=
-github.com/greatfocus/gf-sframe v0.1.1 h1:wKd0WyPEscQo6dOOf5XAa4o2pHOczlP479nEO5cP25M=
-github.com/greatfocus/gf-sframe v0.1.1/go.mod h1:hdzHDfnnRi5kK3VDx/Hz1OW7MiSlkURdoOuXYsGM7Bw=
+github.com/greatfocus/gf-sframe v0.1.2 h1:BjKnAZ6Jxxsx8kSIBKm2Q0i5xCw2KcmtuLTL51O3WY4=
+github.com/greatfocus/gf-sframe v0.1.2/go.mod h1:hdzHDfnnRi5kK3VDx/Hz1OW7MiSlkURdoOuXYsGM7Bw=
 github.com/joho/godotenv v1.3.0 h1:Zjp+RcGpHhGlrMbJzXTrZZPrWj+1vfm90La1wgB6Bhc=
 github.com/joho/godotenv v1.3.0/go.mod h1:7hK45KPybAkOC6peb+G5yklZfMxEjkZhHbwpqxOKXbg=
 github.com/kr/pretty v0.1.0/go.mod h1:dAy3ld7l9f0ibDNOQOHHMYYIIbhfbHSm3C4ZsoJORNo=
