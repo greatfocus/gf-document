@@ -20,6 +20,7 @@ import (
 	"github.com/greatfocus/gf-sframe/logger"
 	"github.com/joho/godotenv"
 	"github.com/patrickmn/go-cache"
+	"github.com/sirupsen/logrus"
 )
 
 // NewServer get new instance of server
@@ -63,7 +64,7 @@ type Server struct {
 	Cache            *cache.Cache
 	Database         database.Database
 	JWT              JWT
-	Logger           logger.Logger
+	Logger           *logrus.Logger
 	clientPublicKey  *rsa.PublicKey
 	ServerPublicKey  *rsa.PublicKey
 	serverPrivateKey *rsa.PrivateKey
@@ -136,7 +137,7 @@ func initJWT() JWT {
 	return NewJWT(secret, minutes, authorized)
 }
 
-func initDatabase(logger logger.Logger) database.Database {
+func initDatabase(logger *logrus.Logger) database.Database {
 	logger.Info(fmt.Sprintln("Preparing Database configuration"))
 	host := os.Getenv("DB_HOST")
 	databaseName := os.Getenv("DB_NAME")
@@ -209,7 +210,7 @@ func setUploadPath(mux *http.ServeMux, uri string) {
 }
 
 // start creates server instance
-func start(mux *http.ServeMux, logger logger.Logger, timeout int) {
+func start(mux *http.ServeMux, logger *logrus.Logger, timeout int) {
 	addr := ":" + os.Getenv("SERVER_PORT")
 	srv := &http.Server{
 		Addr:           addr,

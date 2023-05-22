@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/greatfocus/gf-sframe/logger"
+	"github.com/sirupsen/logrus"
 )
 
 type Database interface {
@@ -27,8 +27,8 @@ type Writer interface {
 }
 
 type Migration interface {
-	RunSchema(schemas []string, logger logger.Logger)
-	RebuildIndexes(logger logger.Logger)
+	RunSchema(schemas []string, logger *logrus.Logger)
+	RebuildIndexes(logger *logrus.Logger)
 	Insert(ctx context.Context, query string, args ...interface{}) (int64, bool)
 	Query(ctx context.Context, query string, args ...interface{}) (*sql.Rows, error)
 	Select(ctx context.Context, query string, args ...interface{}) *sql.Row
@@ -50,7 +50,7 @@ type postgresql struct {
 	param    *DatabaseParam
 }
 
-func NewConnection(param DatabaseParam, logger logger.Logger) Database {
+func NewConnection(param DatabaseParam, logger *logrus.Logger) Database {
 	return &postgresql{
 		database: connect(param, logger),
 		param:    &param,
@@ -58,7 +58,7 @@ func NewConnection(param DatabaseParam, logger logger.Logger) Database {
 }
 
 // connect creates a database connection
-func connect(param DatabaseParam, logger logger.Logger) *sql.DB {
+func connect(param DatabaseParam, logger *logrus.Logger) *sql.DB {
 	logger.Info("Creating database connection")
 	conn, err := sql.Open("postgres", param.ConnectionStr)
 	if err != nil {
@@ -79,7 +79,7 @@ func connect(param DatabaseParam, logger logger.Logger) *sql.DB {
 }
 
 // RunSchema prepare and execute database changes
-func (p *postgresql) RunSchema(schemas []string, logger logger.Logger) {
+func (p *postgresql) RunSchema(schemas []string, logger *logrus.Logger) {
 	logger.Info("Executing database schema")
 	for _, schema := range schemas {
 		if _, err := p.database.Exec(schema); err != nil {
@@ -90,7 +90,7 @@ func (p *postgresql) RunSchema(schemas []string, logger logger.Logger) {
 }
 
 // RebuildIndexes execute indexes
-func (p *postgresql) RebuildIndexes(logger logger.Logger) {
+func (p *postgresql) RebuildIndexes(logger *logrus.Logger) {
 	logger.Info("Rebuild database indexes")
 	script := string("REINDEX DATABASE " + p.param.DatabaseName + ";")
 	if _, err := p.database.Exec(script); err != nil {

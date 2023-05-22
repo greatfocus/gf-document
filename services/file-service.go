@@ -15,9 +15,9 @@ import (
 	"github.com/greatfocus/gf-document/models"
 	"github.com/greatfocus/gf-document/repositories"
 	"github.com/greatfocus/gf-sframe/database"
-	"github.com/greatfocus/gf-sframe/logger"
 	"github.com/greatfocus/gf-sframe/server"
 	cache "github.com/patrickmn/go-cache"
+	"github.com/sirupsen/logrus"
 )
 
 var uploadPath = "./upload"
@@ -26,11 +26,11 @@ var uploadPath = "./upload"
 type FileService struct {
 	fileRepository *repositories.FileRepository
 	jwt            server.JWT
-	logger         logger.Logger
+	logger         *logrus.Logger
 }
 
 // Init method
-func (f *FileService) Init(database database.Database, cache *cache.Cache, jwt server.JWT, logger logger.Logger) {
+func (f *FileService) Init(database database.Database, cache *cache.Cache, jwt server.JWT, logger *logrus.Logger) {
 	f.fileRepository = &repositories.FileRepository{}
 	f.fileRepository.Init(database, cache)
 	f.jwt = jwt
